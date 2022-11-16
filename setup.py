@@ -31,15 +31,15 @@ with open("VERSION") as f:
 with open("requirements.txt") as f:
     required = f.read().splitlines()
 
-plugins_list = ["slurm = covalent_slurm_plugin.slurm"]
+plugins_list = ["flexible_slurm = flexible_slurm_plugin.slurm"]
 
 setup_info = {
-    "name": "covalent-slurm-plugin",
+    "name": "flexible-slurm-plugin",
     "packages": find_packages("."),
     "version": version,
     "maintainer": "Agnostiq",
-    "url": "https://github.com/AgnostiqHQ/covalent-slurm-plugin",
-    "download_url": f"https://github.com/AgnostiqHQ/covalent-slurm-plugin/archive/v{version}.tar.gz",
+    "url": "https://github.com/svandenhaute/flexible-slurm-plugin",
+    "download_url": f"https://github.com/svandenhaute/flexible-slurm-plugin/archive/v{version}.tar.gz",
     "license": "GNU Affero GPL v3.0",
     "author": "Agnostiq",
     "author_email": "support@agnostiq.ai",

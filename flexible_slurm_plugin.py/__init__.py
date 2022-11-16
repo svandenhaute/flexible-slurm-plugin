@@ -18,4 +18,4 @@
 #
 # Relief from the License may be granted by purchasing a commercial license.
 
-from .slurm import SlurmExecutor
+from .flexible_slurm import FlexibleSlurmExecutor
