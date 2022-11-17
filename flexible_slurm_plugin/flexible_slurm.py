@@ -93,7 +93,7 @@ class FlexibleSlurmExecutor(BaseAsyncExecutor):
         self.username = username
         self.address = address
 
-        ssh_key_file = ssh_key_file or get_config("executors.slurm.ssh_key_file")
+        ssh_key_file = ssh_key_file or get_config("executors.flexible_slurm.ssh_key_file")
         self.ssh_key_file = str(Path(ssh_key_file).expanduser().resolve())
 
         self.remote_workdir = remote_workdir
@@ -105,7 +105,7 @@ class FlexibleSlurmExecutor(BaseAsyncExecutor):
 
         # To allow passing empty dictionary
         if options is None:
-            options = get_config("executors.slurm.options")
+            options = get_config("executors.flexible_slurm.options")
         self.options = deepcopy(options)
 
         self.poll_freq = poll_freq

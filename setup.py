@@ -31,7 +31,7 @@ with open("VERSION") as f:
 with open("requirements.txt") as f:
     required = f.read().splitlines()
 
-plugins_list = ["flexible_slurm = flexible_slurm_plugin.slurm"]
+plugins_list = ["flexible_slurm = flexible_slurm_plugin.flexible_slurm"]
 
 setup_info = {
     "name": "flexible-slurm-plugin",
