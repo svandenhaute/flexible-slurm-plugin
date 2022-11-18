@@ -173,15 +173,15 @@ class FlexibleSlurmExecutor(BaseAsyncExecutor):
 
     def _format_submit_script(
         self,
-        func_filename: str,
-        result_filename: str,
+        remote_func_filename: str,
+        remote_result_filename: str,
         python_version: str,
     ) -> str:
         """Create a SLURM script which wraps a pickled Python function.
 
         Args:
-            func_filename: Name of the pickled function.
-            result_filename: Name of the pickled result.
+            remote_func_filename: remote path of the pickled function.
+            remote_result_filename: remote path of the pickled result.
             python_version: Python version required by the pickled function.
 
         Returns:
@@ -201,7 +201,7 @@ class FlexibleSlurmExecutor(BaseAsyncExecutor):
 python - <<EOF
 import cloudpickle as pickle
 
-with open("{func_filename}", "rb") as f:
+with open("{remote_func_filename}", "rb") as f:
     function, args, kwargs = pickle.load(f)
 
 result = None
@@ -212,14 +212,14 @@ try:
 except Exception as e:
     exception = e
 
-with open("{result_filename}", "wb") as f:
+with open("{remote_result_filename}", "wb") as f:
     pickle.dump((result, exception), f)
 EOF
 
 wait
 """.format(
-            func_filename=os.path.join(self.remote_workdir, func_filename),
-            result_filename=os.path.join(self.remote_workdir, result_filename),
+            remote_func_filename=remote_func_filename,
+            remote_result_filename=remote_result_filename,
         )
 
         return slurm_preamble + self.slurm_flexible + slurm_body
@@ -283,11 +283,11 @@ wait
         if "COMPLETED" not in status:
             raise RuntimeError("Job failed with status:\n", status)
 
-    async def _query_result(self, result_filename: str, task_results_dir: str, conn: asyncssh.SSHClientConnection) -> Any:
+    async def _query_result(self, remote_result_filename: str, task_results_dir: str, conn: asyncssh.SSHClientConnection) -> Any:
         """Query and retrieve the task result including stdout and stderr logs.
 
         Args:
-            result_filename: Name of the pickled result file.
+            remote_result_filename: remote path of the pickled result file.
             task_results_dir: Directory on the Covalent server where the result will be copied.
 
         Returns:
@@ -295,14 +295,14 @@ wait
         """
 
         # Check the result file exists on the remote backend
-        remote_result_filename = os.path.join(self.remote_workdir, result_filename)
+        #remote_result_filename = os.path.join(self.remote_workdir, result_filename)
 
         proc = await conn.run(f"test -e {remote_result_filename}")
         if proc.returncode != 0:
             raise FileNotFoundError(proc.returncode, proc.stderr.strip(), remote_result_filename)
 
         # Copy result file from remote machine to Covalent server
-        local_result_filename = os.path.join(task_results_dir, result_filename)
+        local_result_filename = os.path.join(task_results_dir, 'result.pkl')
         await asyncssh.scp((conn, remote_result_filename), local_result_filename)
 
         # Copy stdout, stderr from remote machine to Covalent server
@@ -333,18 +333,20 @@ wait
         node_id = task_metadata["node_id"]
         results_dir = task_metadata["results_dir"]
 
-        result_filename = f"result-{dispatch_id}-{node_id}.pkl"
-        slurm_filename = f"slurm-{dispatch_id}-{node_id}.sh"
+        #result_filename = f"result-{dispatch_id}-{node_id}.pkl"
+        #slurm_filename = f"slurm-{dispatch_id}-{node_id}.sh"
+        result_filename = "result.pkl"
+        slurm_filename = "slurm.sh"
         task_results_dir = os.path.join(results_dir, dispatch_id)
 
-        if "output" not in self.options:
-            self.options["output"] = os.path.join(
-                self.remote_workdir, f"stdout-{dispatch_id}-{node_id}.log"
-            )
-        if "error" not in self.options:
-            self.options["error"] = os.path.join(
-                self.remote_workdir, f"stderr-{dispatch_id}-{node_id}.log"
-            )
+        # create separate folder for each job
+        jobdir = os.path.join(self.remote_workdir, f"{dispatch_id}-{node_id}")
+        self.options["output"] = os.path.join(
+            jobdir, "stdout.log"
+        )
+        self.options["error"] = os.path.join(
+            jobdir, "stderr.log"
+        )
 
         result = None
 
@@ -363,16 +365,16 @@ wait
             await temp_f.flush()
 
             # Create the remote directory
-            app_log.debug(f"Creating remote work directory {self.remote_workdir} ...")
-            cmd_mkdir_remote = f"mkdir -p {self.remote_workdir}"
+            app_log.debug(f"Creating remote work directory {jobdir} ...")
+            cmd_mkdir_remote = f"mkdir -p {jobdir}"
 
             proc_mkdir_cache = await conn.run(cmd_mkdir_remote, request_pty='force')
             if client_err := proc_mkdir_cache.stderr.strip():
                 raise RuntimeError(client_err)
 
             # Copy the function to the remote filesystem
-            func_filename = f"func-{dispatch_id}-{node_id}.pkl"
-            remote_func_filename = os.path.join(self.remote_workdir, func_filename)
+            func_filename = "func.pkl"
+            remote_func_filename = os.path.join(jobdir, func_filename)
 
             app_log.debug(f"Copying function to remote fs: {remote_func_filename} ...")
             await asyncssh.scp(temp_f.name, (conn, remote_func_filename))
@@ -381,9 +383,10 @@ wait
             app_log.debug(f"Python version: {func_py_version}")
 
             # Format the SLURM submit script
+            remote_result_filename = os.path.join(jobdir, result_filename)
             slurm_submit_script = self._format_submit_script(
-                func_filename,
-                result_filename,
+                remote_func_filename,
+                remote_result_filename,
                 func_py_version,
             )
 
@@ -392,16 +395,16 @@ wait
             await temp_g.flush()
 
             # Copy the script to the remote filesystem
-            remote_slurm_filename = os.path.join(self.remote_workdir, slurm_filename)
+            remote_slurm_filename = os.path.join(jobdir, slurm_filename)
 
             app_log.debug(f"Copying slurm submit script to remote: {remote_slurm_filename} ...")
             await asyncssh.scp(temp_g.name, (conn, remote_slurm_filename))
 
             # Execute the script
-            remote_slurm_filename = os.path.join(self.remote_workdir, slurm_filename)
+            remote_slurm_filename = os.path.join(jobdir, slurm_filename)
 
             app_log.debug(f"Running the script: {remote_slurm_filename} ...")
-            cmd_sbatch = f"sbatch {remote_slurm_filename}"
+            cmd_sbatch = f"sbatch -D {jobdir} --export=NONE {remote_slurm_filename}"
             
             if self.slurm_path:
                 app_log.debug("Exporting slurm path for sbatch...")
@@ -429,7 +432,7 @@ wait
 
             app_log.debug(f"Querying result with job_id: {slurm_job_id} ...")
             result, stdout, stderr, exception = await self._query_result(
-                result_filename, task_results_dir, conn
+                remote_result_filename, task_results_dir, conn
             )
 
             print(stdout)
@@ -453,9 +456,10 @@ wait
 
     async def teardown(self, task_metadata: Dict):
 
+        _, conn = await self._client_connect()
         if self.cleanup:
+            raise NotImplementedError('cleanup not implemented due to changed remote working directory layout')
             app_log.debug("Performing cleanup on remote...")
-            _, conn = await self._client_connect()
             await self.perform_cleanup(
                 conn=conn,
                 remote_func_filename=self._remote_func_filename,
